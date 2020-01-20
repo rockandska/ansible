@@ -392,6 +392,26 @@ class YumModule(YumDnf):
         self.lockfile = '/var/run/yum.pid'
         self._yum_base = None
 
+    def _enablerepos_with_error_checking(self):
+        # NOTE: This seems unintuitive, but it mirrors yum's CLI behavior
+        if len(self.enablerepo) == 1:
+            try:
+                self.yum_base.repos.enableRepo(self.enablerepo[0])
+            except yum.Errors.YumBaseError as e:
+                if u'repository not found' in to_text(e):
+                    self.module.fail_json(msg="Repository %s not found." % self.enablerepo[0])
+                else:
+                    raise e
+        else:
+            for rid in self.enablerepo:
+                try:
+                    self.yum_base.repos.enableRepo(rid)
+                except yum.Errors.YumBaseError as e:
+                    if u'repository not found' in to_text(e):
+                        self.module.warn("Repository %s not found." % rid)
+                    else:
+                        raise e
+
     def is_lockfile_pid_valid(self):
         try:
             try:
@@ -434,26 +454,6 @@ class YumModule(YumDnf):
         # another copy seems to be running
         return True
 
-    def _enablerepos_with_error_checking(self, yumbase):
-        # NOTE: This seems unintuitive, but it mirrors yum's CLI bahavior
-        if len(self.enablerepo) == 1:
-            try:
-                yumbase.repos.enableRepo(self.enablerepo[0])
-            except yum.Errors.YumBaseError as e:
-                if u'repository not found' in to_text(e):
-                    self.module.fail_json(msg="Repository %s not found." % self.enablerepo[0])
-                else:
-                    raise e
-        else:
-            for rid in self.enablerepo:
-                try:
-                    yumbase.repos.enableRepo(rid)
-                except yum.Errors.YumBaseError as e:
-                    if u'repository not found' in to_text(e):
-                        self.module.warn("Repository %s not found." % rid)
-                    else:
-                        raise e
-
     @property
     def yum_base(self):
         if self._yum_base:
@@ -491,10 +491,11 @@ class YumModule(YumDnf):
             self.yum_base.conf
 
             try:
-                self._enablerepos_with_error_checking(self._yum_base)
-
                 for rid in self.disablerepo:
                     self.yum_base.repos.disableRepo(rid)
+
+                self._enablerepos_with_error_checking()
+
             except Exception as e:
                 self.module.fail_json(msg="Failure talking to yum: %s" % to_native(e))
 
